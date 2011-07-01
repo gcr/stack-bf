@@ -1,9 +1,26 @@
 #lang racket
-(provide to-bf
-         )
+#|
+Stack-BF: Implements the semantics of a small language that "compiles" (HA) into raw brainf with a "stack-like" idiom.
 
-(define (to-bf . structure)
-  (apply string-append (flatten structure)))
+The brainf data array can be thought of as a stack. Moving right, filling in cells as you go, is somewhat like "pushing" onto the stack. Moving left setting cells to 0 as you go is sort of like 'popping' the stack.
+
+With this perspective in mind, one can build a little forth-like language completely from brainf constructs like this.
+|#
+(provide (all-defined-out))
+
+(define *SP* (make-parameter 0)) ; TODO: get something better for this.
+; The 'stack pointer' lets us follow movement of our "compiliation" as it manipulates various parts of the stack. This way we can, say, keep track of variable references simply by taking (- (*SP*) 5) for example.for example, where 5 is the absolute location of the variable.
+
+; bf : list -> string
+(define-syntax-rule (bf structure ...)
+  (compile-bf-thunk/guard (λ() (list structure ...))))
+(define (compile-bf-thunk/guard structure-thunk)
+  (parameterize ([*SP* 0])
+    (begin0 (compile-bf-thunk structure-thunk)
+            (unless (= (*SP*) 0)
+              (printf "Warning: Unclean stack! Have ~a too many elements\n" (*SP*))))))
+(define (compile-bf-thunk structure-thunk)
+  (apply string-append (flatten (structure-thunk))))
 
 (define-syntax defop
   (syntax-rules ()
@@ -12,12 +29,19 @@
     [(defop (name args ... . x) body ...)
      (define (name args ... . x) (list body ...))]))
 
-;; Stack manipulation
+(define-syntax-rule (letop def body ...)
+  (let def (list body ...)))
+
+;;; General-purpose stack manipulation
 (define (incr) "+")
 (define (decr) "-")
 (define (loop-while-nonzero . body) `("[" ,@body "]"))
-(define (next!) ">") ; exclamation points say things that manipulate the stack.
-(define (prev!) "<")
+(define (next!)
+  (*SP* (add1 (*SP*)))
+  ">") ; exclamation points denote functions that manipulate the stack.
+(define (prev!)
+  (*SP* (sub1 (*SP*)))
+  "<")
 (define (output) ".")
 (define (input-char) ",")
 (define (next-n! n) (make-string n #\>))
