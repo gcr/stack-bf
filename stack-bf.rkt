@@ -8,8 +8,8 @@ With this perspective in mind, one can build a little forth-like language comple
 |#
 (provide (all-defined-out))
 
-(define *SP* (make-parameter 0)) ; TODO: get something better for this.
-; The 'stack pointer' lets us follow movement of our "compiliation" as it manipulates various parts of the stack. This way we can, say, keep track of variable references simply by taking (- (*SP*) 5) for example.for example, where 5 is the absolute location of the variable.
+(define *SP* (make-parameter 0)) ; TODO: this is such a leaky abstraction...
+; This 'stack pointer' (hehe) lets us follow movement of our "compiliation" as it manipulates various parts of the stack. This way we can, say, keep track of variable references simply by taking (- (*SP*) 5) for example, where 5 is the absolute location of the variable.
 
 ; bf : list -> string
 (define-syntax-rule (bf structure ...)
@@ -33,8 +33,8 @@ With this perspective in mind, one can build a little forth-like language comple
   (let def (list body ...)))
 
 ;;; General-purpose stack manipulation
-(define (incr) "+")
-(define (decr) "-")
+(define (incr!) "+")
+(define (decr!) "-")
 (define (loop-while-nonzero . body) `("[" ,@body "]"))
 (define (next!)
   (*SP* (add1 (*SP*)))
@@ -43,11 +43,11 @@ With this perspective in mind, one can build a little forth-like language comple
   (*SP* (sub1 (*SP*)))
   "<")
 (define (output) ".")
-(define (input-char) ",")
+(define (input-char!) ",")
 (define (next-n! n) (make-string n #\>))
 (define (prev-n! n) (make-string n #\<))
-(define (set-0) (loop-while-nonzero (decr)))
-(define (free!) `(,(set-0) ,(prev!)))
+(define (set-0!) (loop-while-nonzero (decr!)))
+(define (free!) `(,(set-0!) ,(prev!)))
 
 (defop (with-next . body)
   (next!) body (prev!))
@@ -72,17 +72,17 @@ With this perspective in mind, one can build a little forth-like language comple
   (map (λ(c) (output-char c)) (string->list s)))
 
 ;; ( a b c -- a+c b )
-(defop (add-to n)
+(defop (add-to! n)
   (loop-while-nonzero
-   (decr)
+   (decr!)
    (with-prev-n n
-                (incr)))
+                (incr!)))
   (prev!))
 
 ;; ( a -- 10a )
-(defop (mult-10)
+(defop (mult-10!)
   "[>++++++++++<-]"
-  (next!) (add-to-prev))
+  (next!) (add-to-prev!))
 
 ;; ( -- k )
 (defop (push-constant n)
@@ -91,7 +91,7 @@ With this perspective in mind, one can build a little forth-like language comple
     (let-values ([(q r) (quotient/remainder n 10)])
       (list
        (if (> q 0)
-           (list (each-digit q) (mult-10))
+           (list (each-digit q) (mult-10!))
            '())
        (make-string r #\+)))))
           
@@ -100,14 +100,14 @@ With this perspective in mind, one can build a little forth-like language comple
 (defop (dup-n n)
   (with-prev-n n
                (loop-while-nonzero
-                (decr)
+                (decr!)
                 (with-next-n (+ 1 n)
-                             (incr)
-                             (with-next (incr)))))
+                             (incr!)
+                             (with-next (incr!)))))
   ; the stack is ( *0 a a )
   
   (next!) (next!)       ; ( 0 ... a *a )
-  (add-to (+ n 2)))    ; ( a ... a )
+  (add-to! (+ n 2)))    ; ( a ... a )
 
 ;; ( a -- a a )
 (defop (dup)
@@ -115,53 +115,53 @@ With this perspective in mind, one can build a little forth-like language comple
 
 ;; ( a b c -- c b )
 (defop (move-to n)
-  (with-prev-n n (set-0))
-  (add-to n))
+  (with-prev-n n (set-0!))
+  (add-to! n))
 
 
 ;; ( a b -- a+b )
-(defop (add-to-prev)
-  (add-to 1))
+(defop (add-to-prev!)
+  (add-to! 1))
 
 ;; ( a -- 2a )
-(defop (double)
+(defop (double!)
   (loop-while-nonzero
-   (decr)
-   (with-next (incr) (incr)))
-  (next!) (add-to-prev))
+   (decr!)
+   (with-next (incr!) (incr!)))
+  (next!) (add-to-prev!))
 
 ;; ( a -- ) consumes one cell, then executes body. Be sure you have a balanced stack!
-(defop (if-nonzero . body)
+(defop (if-nonzero! . body)
   (loop-while-nonzero
-   (set-0)
+   (set-0!)
    (with-prev body))
   (prev!))
 
 ;; ( 0 -- 0 )
 ;; ( 35 -- 1 )
-(defop (ensure-1)
+(defop (ensure-1!)
   (loop-while-nonzero
-   (loop-while-nonzero (decr))
-   (with-next (incr)))
-  (next!) (add-to 1))
+   (loop-while-nonzero (decr!))
+   (with-next (incr!)))
+  (next!) (add-to! 1))
 
 ;; ( 0 -- 1 )
 ;; ( 35 -- 0 )
-(defop (not)
-  (ensure-1) (dup)
-  (with-prev (incr)) ; stack is either 2 1 or 1 0 
-  (if-nonzero (decr) (decr)))
+(defop (not!)
+  (ensure-1!) (dup)
+  (with-prev (incr!)) ; stack is either 2 1 or 1 0
+  (if-nonzero! (decr!) (decr!)))
 
 ;; ( a -- ) consumes one cell, then executes body. Be sure you have a balanced stack!
-(defop (if-zero . body)
-  (not) (if-nonzero body))
+(defop (if-zero! . body)
+  (not!) (if-nonzero! body))
 
 ;; consumes one cell AFTER running then or else.
 ;; if nonzero, then "then" will be run; if zero, "else" will be run.
-(defop (if-branch then else)
+(defop (if-branch! then else)
   (dup)
-  (if-nonzero then)
-  (if-zero (with-next else)))
+  (if-nonzero! then)
+  (if-zero! (with-next else)))
   
   
   
